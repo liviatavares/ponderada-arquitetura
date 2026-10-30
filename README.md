@@ -1,0 +1,1 @@
+# ponderada-arquitetura
