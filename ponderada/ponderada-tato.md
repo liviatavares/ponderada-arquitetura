@@ -1,8 +1,11 @@
 # Ponderada do pipeline ao deadlock
 
 **Nome**: Lívia Sabóia Tavares 
+
 **D1** = 5 
+
 **D2** = 8
+
 **N** = 6
 
 
@@ -21,15 +24,11 @@
 ### A1.1 Tempo por amostra na Plataforma H
 
 O tempo de CPU pode ser medido por:
-$$
-T_{CPU} = CPI \times IC \times T_{ciclo}
-$$
+$T_{CPU} = CPI \times IC \times T_{ciclo}$
 
 O meu número de instruções por amostra (IC) é de 260000, o CPI é de 1,5 e o tempo de ciclo é 1/frequência do ciclo, em que a frequência do ciclo é 48MHz. Fazendo as contas, temos
 
-$$
-T_{CPU} = 1.5 \times 260000 \times 1/(48 \times 10^{6})
-$$
+$T_{CPU} = 1.5 \times 260000 \times 1/(48 \times 10^{6})$
 
 Ou seja, o $T_{CPU}$ é 8,125ms. Não atende ao critério de processamento em até 5ms.
 
@@ -37,9 +36,7 @@ Ou seja, o $T_{CPU}$ é 8,125ms. Não atende ao critério de processamento em at
 
 O AMAT (para nível único) pode ser calculado por:
 
-$$
-AMAT = T_{acerto} + taxa_{falhas} \times penalidade_{falha}
-$$
+$AMAT = T_{acerto} + taxa_{falhas} \times penalidade_{falha}$
 
 Ou seja, substituindo temos:
 
@@ -48,9 +45,7 @@ $AMAT$ = 7.6
 
 Para o CPI efetivo:
 
-$$
-CPI_{efetivo} = 1 + (acessos \times m \times penalidade)
-$$
+$CPI_{efetivo} = 1 + (acessos \times m \times penalidade)$
 
 Ou seja,
 
@@ -74,9 +69,7 @@ A plataforma V atende ao requisito no caso típico e falha no pior caso, e como 
 
 A lei de amdahl é dada por:
 
-$$
-Ganho = 1/((1-f) + f/s)
-$$
+$Ganho = 1/((1-f) + f/s)$
 
 Com f sendo a fração do tempo de execução e s a taxa de aceleração.
 
