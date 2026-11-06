@@ -41,6 +41,7 @@ $AMAT = T_{acerto} + taxa_{falhas} \times penalidade_{falha}$
 Ou seja, substituindo temos:
 
 $AMAT = 1 + 0,055 \times 120$
+
 $AMAT$ = 7.6
 
 Para o CPI efetivo:
@@ -56,7 +57,9 @@ $CPI_{efetivo}$ = 9.58
 Então, o tempo por amostra vai ser, no caso médio:
 
 $T_{amostra} = (IC \times CPI_{efetivo})/f$
+
 $T_{amostra} = (260000 \times 9.58)/1,2 * 10^{9}$
+
 $T_{amostra}$ = 2,08 ms
 
 No pior caso, somando os 3ms de atraso do sistema operacional:
@@ -118,7 +121,7 @@ RAW = o x5, na segunda instrução, é lido depois de ser escrito na primeira. D
 | 3 `lw x7, 0(x11)` | 4 `sub x6, x6, x7` | x7 |
 | 4 `sub x6, x6, x7` | 5 `sw x6, 0(x12)` | x6 |
 
-As duas primeiras, 1 -> 2 e 3 -> 4, são dependências de load-use, porque quem produz o dado é uma `lw`. As outras duas são de ALU para ALU.
+As duas primeiras, 1 -> 2 e 3 -> 4, são dependências de load-use (quando uma instrução que precisa do núcleo ALU tenta usar imediatamente o registrador que acabou de ser carregado por uma instrução de leitura de memória), porque quem produz o dado é uma `lw`. As outras duas são de ALU para ALU.
 
 Existem também duas dependências WAR, que não geram bolha em um pipeline que executa em ordem: x10 é lido pela 1 e reescrito pela 6, e x11 é lido pela 3 e reescrito pela 7. A leitura em ID de uma instrução anterior sempre acontece antes da escrita em WB de uma posterior, então nenhuma das duas para o pipeline.
 
@@ -138,7 +141,7 @@ Legenda: b = bolha, ou seja, instrução parada esperando o dado.
 | 6 addi x10 |  |  |  |  |  |  |  |  |  |  |  | IF | ID | EX | MEM | WB |  |
 | 7 addi x11 |  |  |  |  |  |  |  |  |  |  |  |  | IF | ID | EX | MEM | WB |
 
-Bolhas por dependência:
+Bolhas:
 
 - 1 -> 2 (x5): 2 bolhas, porque a `add` só consegue ler x5 no ciclo 5, que é o WB da `lw`.
 - 3 -> 4 (x7): 2 bolhas, mesma situação agora com x7.
@@ -149,7 +152,7 @@ Total de ciclos (primeiro IF ao último WB): 17 ciclos. Sem nenhuma parada o tre
 
 ### A2.3 Pipeline com forwarding
 
-Com forwarding as dependências de ALU para ALU somem, porque o resultado sai do registrador de pipeline EX/MEM direto para a entrada da ALU. As duas de load-use continuam custando 1 bolha cada, já que o dado da memória só existe no fim do MEM.
+Com forwarding, o hardware o pega no registrador de pipeline onde ele acabou de aparecer e manda direto para a entrada da ALU. As dependências de ALU para ALU somem, porque o resultado sai do registrador de pipeline EX/MEM direto para a entrada da ALU. As duas de load-use continuam custando 1 bolha cada, já que o dado da memória só existe no fim do MEM.
 
 | Instrução | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 |
 | :---- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
@@ -170,7 +173,7 @@ Caminhos de forwarding usados:
 
 Total de ciclos: 13 ciclos, que são os 11 ideais mais as 2 bolhas.
 
-Dependência que continua causando bolha, e por quê: as duas de load-use, `lw x5` para `add` e `lw x7` para `sub`. O valor lido da memória só fica pronto no fim do estágio MEM da `lw`, e a instrução seguinte precisaria dele no começo do seu EX, que cai no mesmo ciclo. O forwarding leva o dado de um ponto a outro do pipeline, mas não consegue entregar no começo de um ciclo um valor que só nasce no fim dele. Por isso o hardware é obrigado a atrasar a consumidora em 1 ciclo.
+Dependência que continua causando bolha: as duas de load-use, `lw x5` para `add` e `lw x7` para `sub`. O valor lido da memória só fica pronto no fim do estágio MEM da `lw`, e a instrução seguinte precisaria dele no começo do seu EX, que cai no mesmo ciclo. O forwarding leva o dado de um ponto a outro do pipeline, mas não consegue entregar no começo de um ciclo um valor que só existe no fim dele. Por isso o hardware é obrigado a atrasar a consumidora em 1 ciclo.
 
 ### A2.4 Reordenação sem bolhas
 
@@ -212,36 +215,38 @@ Verificação ciclo a ciclo:
 - `add` (EX no ciclo 6) para `sub` (EX no ciclo 7): EX/MEM para EX, zero bolha.
 - `sub` (MEM no ciclo 8) para `sw` (EX no ciclo 9): MEM/WB para EX, zero bolha.
 
-Novo total de ciclos: 11 ciclos, que é o mínimo possível para 7 instruções em um pipeline de 5 estágios (7 + 4). Saímos de 17 sem forwarding para 13 com forwarding e 11 com forwarding mais reordenação, ou seja 35% mais rápido que o pipeline sem forwarding só mudando a ordem das instruções.
+Novo total de ciclos: 11 ciclos, que é o mínimo possível para 7 instruções em um pipeline de 5 estágios (7 + 4). Sai de 17 sem forwarding para 13 com forwarding e 11 com forwarding mais reordenação, ou seja 35% mais rápido que o pipeline sem forwarding só mudando a ordem das instruções.
 
 ## A3. Processos e threads: como organizar o software
 
 ### A3.1 Organização proposta
 
-Separei as tarefas pela fronteira de confiança e de tempo real. As três que estão no caminho crítico dos 5 ms viram threads de um único processo de tempo real, e o BLE, que é o único que recebe dado de fora e também o único sem prazo duro, vira processo separado.
+A ideia aqui foi separar as partes que precisam responder em frações de segundo do que pode esperar um pouco. As três tarefas mais críticas do sistema ficaram como threads do mesmo processo de tempo real, enquanto o módulo BLE foi colocado em um processo separado, porque ele é o único que conversa com o mundo externo e não precisa responder no mesmo ritmo apertado.
 
 | Tarefa | Thread ou processo | Justificativa |
 | :---- | :---- | :---- |
-| Ler o sensor | Thread do processo de tempo real | Memória compartilhada: escreve direto no buffer circular que o processamento lê, sem cópia nem serialização. Custo de troca: trocar entre threads do mesmo processo não troca tabela de páginas nem invalida TLB, o que importa em um laço que roda 100 vezes por segundo. Isolamento: isolá-la não compra nada, porque se a leitura do sensor morre a pulseira já não tem função. |
-| Processar a amostra | Thread do processo de tempo real | Memória compartilhada: lê o buffer do sensor e escreve a intensidade de vibração no mesmo espaço de endereçamento. Custo de troca: é a tarefa que consome os 2,08 ms da A1.2, e qualquer cópia por IPC a cada 10 ms sairia desse orçamento. Isolamento: falha aqui é falha do produto, não dá para degradar graciosamente. |
-| Acionar o motor de vibração | Thread do processo de tempo real | Memória compartilhada: lê a intensidade já calculada, sem passar pelo kernel. Custo de troca: fecha o caminho sensor, processamento e vibração, que tem que caber nos 5 ms, e IPC aqui adicionaria cópia mais uma decisão do escalonador no pior lugar. Isolamento: tem a mesma vida útil das outras duas. |
-| Falar com o celular por BLE | Processo separado | Memória compartilhada: não precisa, porque ele só usa as amostras já processadas, que cabem em uma mensagem pequena, e nunca o buffer bruto. Custo de troca: é criado uma vez no boot, então o custo alto do `fork` é pago uma única vez, e a troca de contexto completa só acontece quando o log sai, que não tem prazo duro. Isolamento: é a única superfície exposta ao mundo, e em processo separado uma falha nele não derruba o laço de tempo real nem alcança o buffer de amostras. |
+| Ler o sensor | Thread do processo de tempo real | O sensor escreve direto no buffer circular que será lido depois. Essa troca entre tarefas é simples e barata porque elas ficam no mesmo processo. Além disso, se essa parte falhar, a pulseira já perde a função principal, então isolar essa tarefa não ajuda muito. |
+| Processar a amostra | Thread do processo de tempo real | Essa parte é onde a ideia do sistema vira ação: ela lê o dado do sensor e calcula a intensidade da vibração. Como essa etapa é muito frequente e sensível ao tempo, mover os dados para outro processo a cada 10 ms seria gasto desnecessário. Se ela falhar, o produto falha. |
+| Acionar o motor de vibração | Thread do processo de tempo real | Essa tarefa recebe o resultado do cálculo e dispara a vibração. Como ela precisa ficar na cadeia sensor-cálculo-vibração, qualquer custo extra de comunicação só atrapalha. Ela tem o mesmo objetivo das outras duas: funcionar junto, sem perder tempo. |
+| Falar com o celular por BLE | Processo separado | Essa parte não precisa reagir no mesmo instante que o sensor. Ela só precisa receber e enviar informações já processadas, e isso pode acontecer em um fluxo mais tranquilo. Como é a única parte conectada ao mundo externo, é melhor que ela fique isolada para que uma falha dela não derrube o funcionamento do sensor e do motor. |
 
-Mecanismo de comunicação entre os processos: fila de mensagens POSIX (`mq_send` e `mq_receive`), uma em cada sentido.
+O mecanismo de comunicação entre os processos foi uma fila de mensagens POSIX, com uma fila para cada direção.
 
-Saída, do tempo real para o BLE: fila não bloqueante com profundidade fixa. Se o BLE estiver lento ou travado, a fila enche e o processo de tempo real descarta o log mais antigo e segue, sem nunca bloquear. Log atrasado dá para aceitar, vibração atrasada não.
+Na direção do sistema crítico para o BLE, a fila é não bloqueante e tem tamanho fixo. Se o BLE estiver lento ou travado, a fila enche e o sistema simplesmente descarta o log mais antigo e segue em frente. Log atrasado dá para aceitar; vibração atrasada não.
 
-Entrada, do BLE para o tempo real: os comandos de configuração chegam pela segunda fila e são validados pelo processo de tempo real antes de serem aplicados, conferindo faixa de valores, tamanho e taxa máxima de comandos. O BLE nunca escreve um parâmetro direto.
+Na direção do BLE para o tempo real, os comandos de configuração chegam pela segunda fila e são validados antes de serem aplicados. O sistema verifica faixa de valores, tamanho e velocidade de envio. Isso evita que o BLE escreva qualquer parâmetro direto no sistema principal sem passar por uma checagem.
 
-Escolhi fila de mensagens em vez de memória compartilhada porque a fila copia, e assim o processo BLE não ganha nenhum ponteiro para dentro do processo de tempo real. Se o volume de log crescer e a cópia incomodar, o próximo passo é memória compartilhada (`shm_open`) com semáforo, mas mapeada só para leitura no lado do BLE e contendo apenas amostras já processadas.
+A escolha pela fila de mensagens foi de propósito: ela copia os dados em vez de compartilhar memória. Assim, o processo de BLE não recebe ponteiros para dentro do processo principal. Se o volume de log crescer demais, a próxima ideia seria usar memória compartilhada com semáforos, mas só para leitura do lado do BLE e com apenas dados já processados.
 
 ### A3.2 Impacto de segurança no módulo BLE
 
-Como thread: o módulo BLE compartilha o espaço de endereçamento com as outras três tarefas. Um estouro de buffer no parser do pacote BLE dá ao atacante leitura e escrita em tudo que o processo tem, ou seja o buffer circular de amostras, a variável de intensidade do motor e o próprio código das outras threads. Ele consegue silenciar a pulseira sem ninguém perceber ou mentir sobre a distância de um obstáculo. E nem precisa de uma exploração sofisticada, porque um `SIGSEGV` na thread BLE derruba o processo inteiro, e com ele o sensor e o motor. Uma falha em uma tarefa acessória acaba matando a função essencial.
+Se o módulo BLE ficar como thread do mesmo processo, ele compartilha o mesmo espaço de memória das outras tarefas. Isso é perigoso porque um erro de programação em um parser de pacote pode acabar lendo ou escrevendo em qualquer lugar do processo: no buffer de amostras, na variável que controla a vibração e até no código das outras partes. Em outras palavras, uma falha simples pode apagar a função da pulseira ou fazer ela mentir sobre a distância de um obstáculo.
 
-Como processo separado: a MMU garante que o atacante só alcance o espaço de endereçamento do processo BLE. Ele consegue tocar apenas no que a fila de mensagens expõe, e o lado de tempo real valida cada comando que chega. Além disso o processo pode ser fechado por fora, com usuário sem privilégio, sem acesso ao `/dev` do sensor nem ao do motor, filtro `seccomp` limitando as chamadas de sistema e um supervisor que reinicia ele se cair. Se o módulo BLE for comprometido, o pior resultado é a pulseira ficar sem log e sem configuração remota, continuando a vibrar certo.
+Além disso, um erro grave como um `SIGSEGV` nesse módulo pode derrubar o processo inteiro, e junto com ele o sensor e o motor. Ou seja, uma parte que deveria ser auxiliar acaba tirando a função principal do dispositivo.
 
-Custo da opção isolada: cada mensagem paga uma cópia para o kernel e de volta, mais uma troca de contexto completa, com tabela de páginas, TLB e cache poluídos. Isso dá dezenas a centenas de microssegundos por mensagem, contra poucos nanossegundos de um acesso a memória compartilhada. Somam-se o consumo de memória do segundo processo e o código extra de serialização e validação. Mesmo assim vale a pena, porque o log tem 10 ms inteiros de folga enquanto o caminho crítico tem só 5 ms, e nenhum desses microssegundos entra no caminho crítico.
+Se o módulo BLE for um processo separado, a memória fica isolada. Nesse cenário, ele só consegue mexer no que a fila de mensagens deixa passar. O lado de tempo real ainda valida cada comando antes de aplicar, e o sistema pode matar o processo por fora, sem dar acesso ao sensor ou ao motor. Também é possível limitar chamadas de sistema e reiniciar o processo se ele cair. Em resumo, se o BLE for comprometido, o pior que acontece é a pulseira perder o log e a configuração remota, mas continuar vibrando corretamente.
+
+Obviamente, essa separação tem custo. Cada mensagem precisa ser copiada para o kernel e depois lida de volta, além de trocar o contexto do processo. Isso custa mais tempo e memória do que um simples acesso em memória compartilhada. Mesmo assim, faz sentido, porque o log tem mais folga que o caminho crítico e não vale correr o risco de deixar o módulo sensível derrubar o sistema inteiro.
 
 ### A3.3 Diagrama de estados de um processo
 
@@ -257,11 +262,10 @@ stateDiagram-v2
     Terminada --> [*]
 ```
 
-Estado em que a thread do sensor passa a maior parte do tempo: bloqueada, esperando.
+A tarefa do sensor passa a maior parte do tempo esperando. Ela não fica trabalhando o tempo todo, porque ela só precisa agir quando chega uma nova amostra.
 
-Justificativa (razão entre o tempo de processamento da A1.2 e o período de 10 ms): a Plataforma V gasta 2,08 ms por amostra e o sensor entrega uma amostra a cada 10 ms. Então 2,08/10 = 20,8% do tempo a thread tem trabalho para fazer, e nos outros 79,2% não existe amostra nova para ler. Nesse tempo ela fica dormindo em uma espera por E/S ou em um semáforo, e o kernel acorda ela quando o sensor avisa que tem dado. Mesmo no pior caso da A1.2, com os 3 ms de atraso do Linux, são 5,08 ms de 10 ms, ou 50,8%, e ainda sobra cerca de metade do período em espera. Esse perfil, com pouca CPU e prazo curto, é o que caracteriza uma tarefa de tempo real: ela tem CPU de sobra, e o que pesa é quando consegue a CPU de volta. Ela quase nunca aparece como pronta, que é o estado de quem só espera processador, porque o que ela espera é o sensor.
+A plataforma V gastava 2,08 ms por amostra, enquanto o sensor entrega uma nova amostra a cada 10 ms. Isso quer dizer que, em média, a thread tem trabalho por cerca de 20,8% do tempo e fica sem tarefa no restante. Mesmo no pior caso, com o atraso do Linux, a conta chega a 5,08 ms em 10 ms, ou seja, ainda sobra bastante tempo de espera. Isso é típico de tarefa de tempo real: a parte difícil não é "fazer muita coisa", mas sim "conseguir a CPU no momento certo". A thread quase nunca está pronta para rodar; ela está esperando o próximo dado do sensor.
 
----
 
 ## A4. Código com semáforos: o buffer entre o sensor e o motor
 
@@ -287,7 +291,7 @@ Como cada métrica foi medida: o consumidor guarda em uma lista todo valor que r
 
 - Consumidas: número total de leituras válidas, contando repetições. É o `sum(contagem.values())` sobre o dicionário que conta quantas vezes cada identificador apareceu.
 - Perdidas: 20.000 menos a quantidade de identificadores distintos lidos. Amostra perdida é a que foi produzida e nenhuma leitura entregou.
-- Duplicadas: soma dos excedentes, Σ (ocorrências − 1) para todo identificador que apareceu mais de uma vez. Uma amostra lida 3 vezes conta 2 duplicatas.
+- Duplicadas: soma dos excedentes, somatório de (ocorrências − 1) para todo identificador que apareceu mais de uma vez. Uma amostra lida 3 vezes conta 2 duplicatas.
 - Travou: na versão 1 o consumidor mede com `time.monotonic()` quanto tempo está em espera ocupada sem nada para consumir, e passando de 1 s marca travamento e encerra. Nas versões 2 e 3 o mesmo papel é feito pelo `timeout=1.0` nos `acquire()` dos semáforos.
 
 Na versão 1, perdidas e duplicadas aparecem juntas e em quantidade parecida, cerca de 2.500 de cada, ou 12,5% das amostras. As duas saem do mesmo incremento perdido no contador, como explico na A4.3.
@@ -501,11 +505,9 @@ O que muda para quem usa a pulseira: na operação normal, nada. Quando o ciclo 
 
 Comparando as duas: a correção 1 é mais barata em tempo de execução, com custo zero quando não há contenção, e elimina a causa, mas depende de disciplina humana, porque qualquer recurso novo adicionado no futuro tem que entrar na ordem certa e um `P()` fora de ordem em uma revisão mal feita traz o bug de volta. A correção 2 não elimina a causa e paga timeout e backoff, mas protege contra erros que ainda não cometemos, incluindo travamentos vindos de código de terceiros que eu não controlo. Eu implementaria as duas, a ordenação como regra de projeto e a detecção como rede de segurança.
 
----
-
 # Parte B: a decisão do CTO
 
-Dilema escolhido: Dilema 2, qual processador vai para a produção.
+**Dilema escolhido:** qual processador vai para a produção.
 
 ## Memorando ao conselho da Tato
 
@@ -516,32 +518,32 @@ Assunto: Plataforma de produção da pulseira, recomendação pela H com DSP
 
 ### Decisão
 
-Vamos para produção com a Plataforma H mais o acelerador DSP, a R$ 37 por unidade.
+A escolha foi a Plataforma H com acelerador DSP, por R$ 37 por unidade.
 
-### Do que estamos abrindo mão
+### O que estamos abrindo mão
 
-Abrimos mão da atualização pela internet: toda correção de firmware vai exigir que a pulseira passe pela assistência técnica. Quem paga esse custo é o usuário, em deslocamento e em dias sem o produto, e nós, em logística reversa. Abrimos mão também do isolamento por processos que desenhei na A3, já que sem Linux e sem MMU o módulo BLE não pode ser um processo separado e todo o código passa a dividir um espaço de endereçamento.
+A gente deixa de ter atualização pela internet. Se houver algum problema no firmware, a pulseira vai precisar ir até a assistência técnica. Quem paga esse custo é o usuário, que perde tempo e talvez o produto por alguns dias, e também a nossa operação, que precisa lidar com logística reversa. Também abrimos mão do isolamento por processos, que foi proposto na A3, porque sem Linux e sem MMU o módulo BLE não pode ficar separado do restante do sistema.
 
-Esses custos caem sobre a nossa logística e sobre o nosso ritmo de desenvolvimento. O custo da Plataforma V cairia sobre a pessoa que está atravessando a rua.
+Isso afeta a facilidade de corrigir bugs e também a forma como o software é organizado. O custo da plataforma V cai sobre quem está usando a pulseira na rua; o custo da H cai mais sobre nossa operação interna e sobre a velocidade de evolução do produto.
 
 ### O número que sustenta a decisão
 
-O requisito de 5 ms é de tempo real, e em tempo real quem manda é o pior caso. Pelos meus cálculos da A1:
+O requisito de 5 ms é de tempo real, e em tempo real a pior situação manda. Com base no cálculo da A1:
 
-- H sem DSP: 8,125 ms, de 1,5 x 260.000 / 48 MHz. Reprova.
-- V: 2,08 ms no caso típico e 5,08 ms no pior caso. O CPI efetivo é 1 + (1,3 x 0,055 x 120) = 9,58, e 260.000 x 9,58 / 1,2 GHz = 2,08 ms; somando os 3 ms de atraso do Linux, chega em 5,08 ms. Reprova por 0,08 ms.
-- H com DSP: 4,23 ms. Pela Lei de Amdahl, com o filtro valendo 60% do tempo e rodando 5 vezes mais rápido, o speedup é 1/(0,4 + 0,6/5) = 1,92, e 8,125 / 1,92 = 4,23 ms. Aprova, com 15% de folga.
+- H sem DSP: 8,125 ms. Reprova.
+- V: 2,08 ms no caso típico e 5,08 ms no pior caso. Isso ainda reprova por 0,08 ms.
+- H com DSP: 4,23 ms. Isso passa, com cerca de 15% de folga.
 
-O número que pesou foi o 5,08 ms da V. Ele mostra que a V é duas vezes mais rápida que a H no caso médio e ainda assim é a opção que não podemos vender, porque uma pulseira que estoura o prazo em 1% das amostras é uma pulseira que de vez em quando não avisa do poste. Os R$ 33 de economia por unidade, R$ 66 mil nas 2.000 pulseiras do edital, são bem-vindos, mas eu escolheria a H mesmo se ela custasse mais caro.
+O ponto que mais pesou foi o 5,08 ms da V. Ela é mais rápida no caso médio, mas ainda assim não é segura para esse produto, porque uma pulseira que ultrapassa o tempo em 1% das amostras pode falhar na hora certa e não avisar o usuário do obstáculo. Os R$ 33 economizados por unidade são bons, mas eu escolheria a H mesmo que ela fosse mais cara.
 
-### Impacto em quem usa a pulseira e risco de segurança
+### Impacto para quem usa a pulseira e risco de segurança
 
-Para o usuário, o ganho é previsibilidade: deixa de existir o cenário em que o kernel atende outra tarefa no momento em que um obstáculo aparece. A perda é a correção remota de defeitos.
+Para o usuário, o ganho principal é previsibilidade. Ele deixa de ter a chance de o kernel atender outra tarefa no momento em que um obstáculo aparece. A perda é que a correção de defeitos não pode acontecer remotamente.
 
-O risco de segurança é o ponto em que a nossa opção fica pior, e o conselho precisa ver isso escrito. A superfície de ataque da H é menor, sem Linux e sem rede IP, mas a consequência de uma falha é maior: sem MMU, um estouro de buffer no parser de pacotes BLE alcança o buffer de amostras e o controle do motor, que é o cenário da A3.2, e não temos OTA para corrigir. Três contramedidas entram no orçamento desta decisão: rádio BLE em controlador separado, falando com a H por uma interface serial estreita; parser com verificação de limites e fuzzing obrigatório no pipeline de testes; e firmware assinado com um processo de recall por cabo ensaiado antes do lançamento.
+O ponto mais delicado é a segurança. A H tem uma superfície de ataque menor, sem Linux e sem rede IP, mas a consequência de uma falha é mais séria. Sem MMU, um estouro de buffer no parser de pacotes BLE pode atingir o buffer de amostras e o controle do motor, exatamente como discutimos na A3.2. Sem OTA, a correção não acontece de forma remota. Por isso, três medidas entram no planejamento: rádio BLE em controlador separado, parser com validação de limites e testes de fuzzing, e firmware assinado com processo de recall por cabo antes do lançamento.
 
 ### O que me faria mudar de ideia
 
-Migro para a V se o pior caso dela couber no prazo com margem demonstrada. A condição é verificável: Linux com PREEMPT_RT, medido por `cyclictest` em 24 horas contínuas no hardware final, com latência máxima igual ou inferior a 1 ms. Isso levaria o pior caso da V para 3,08 ms, 38% de folga contra os 15% da H com DSP, e aí a OTA passa a valer os R$ 33 extras. Quero esse resultado na mesa do conselho em 90 dias.
+Eu migraria para a V se o pior caso dela coubesse no prazo com uma margem clara e demonstrada. A condição seria algo como: Linux com PREEMPT_RT, medido por `cyclictest` em 24 horas contínuas no hardware final, com latência máxima de 1 ms. Nesse caso, o pior caso da V cairia para 3,08 ms, o que daria 38% de folga, e aí a OTA começaria a valer os R$ 33 extras.
 
-Na direção oposta, se o tempo por amostra medido em bancada na H com DSP passar de 4,5 ms em três medições consecutivas, a H perde a única justificativa técnica que tem, e voltamos à mesa para discutir a redução das 260.000 instruções por amostra.
+No sentido contrário, se o tempo por amostra da H com DSP passar de 4,5 ms em três medições seguidas, aí a H perde a principal razão técnica para existir e pode-se pensar de novo em reduzir as 260.000 instruções por amostra.
